@@ -2,17 +2,25 @@ package main
 
 import (
 	"crypto/tls"
+	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
+)
+
+var (
+	datafile = flag.String("datafile", "", "load url list from file")
+	dataurl  = flag.String("dataurl", "", "load url list from url")
 )
 
 type Urls struct {
@@ -100,7 +108,7 @@ func get_host_and_ssl(wg *sync.WaitGroup, uri string, ip string, host host) {
 	}
 
 	client := http.Client{
-		Timeout: 15 * time.Second,
+		Timeout: 3 * time.Second,
 
 		// don't follow redirects
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -131,20 +139,43 @@ func get_host_and_ssl(wg *sync.WaitGroup, uri string, ip string, host host) {
 }
 
 func main() {
-	data, err := os.ReadFile("urls.yaml")
-	if err != nil {
-		panic(err)
+	flag.Parse()
+
+	var urisFromFile []string
+	var urisFromURL []string
+	if *datafile != "" {
+		var urls Urls
+		data, err := os.ReadFile(*datafile)
+		if err != nil {
+			panic(err)
+		}
+		if err := yaml.Unmarshal(data, &urls); err != nil {
+			panic(err)
+		}
+		urisFromFile = urls.Urls
+	}
+	if *dataurl != "" {
+		var urls Urls
+		resp, err := http.Get(*dataurl)
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			panic(err)
+		}
+		if err := yaml.Unmarshal(body, &urls); err != nil {
+			panic(err)
+		}
+		urisFromURL = urls.Urls
 	}
 
-	var urls Urls
-
-	if err := yaml.Unmarshal(data, &urls); err != nil {
-		panic(err)
-	}
+	uris := slices.Concat(urisFromFile, urisFromURL)
 
 	urlrequests := new(sync.WaitGroup)
 
-	for _, uri := range urls.Urls {
+	for _, uri := range uris {
 		defer handlePanic()
 		urlrequests.Add(1)
 
