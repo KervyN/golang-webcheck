@@ -4,7 +4,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"math"
 	"net"
@@ -49,14 +49,20 @@ func days(t time.Time) int {
 
 func ssl_days(host host, ip string) (int, error) {
 	defer handlePanic()
-	addr := fmt.Sprintf("[%v]:443", ip)
-	var cfg tls.Config
-	cfg.ServerName = host.hostname
-	cfg.InsecureSkipVerify = true
-	conn, err := tls.Dial("tcp", addr, &cfg)
+	addr := "[" + ip + "]:443"
+	cfg := tls.Config{
+		ServerName:         host.hostname,
+		InsecureSkipVerify: true,
+	}
+
+	ipconn, err := net.DialTimeout("tcp", addr, 5*time.Second)
 	if err != nil {
 		panic(err)
+	} else {
+		defer ipconn.Close()
 	}
+	conn := tls.Client(ipconn, &cfg)
+	defer conn.Close()
 	conn.Handshake()
 	certs := conn.ConnectionState().PeerCertificates
 
@@ -108,7 +114,7 @@ func get_host_and_ssl(wg *sync.WaitGroup, uri string, ip string, host host) {
 	}
 
 	client := http.Client{
-		Timeout: 3 * time.Second,
+		Timeout: 5 * time.Second,
 
 		// don't follow redirects
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -161,7 +167,7 @@ func main() {
 			panic(err)
 		}
 		defer resp.Body.Close()
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			panic(err)
 		}
